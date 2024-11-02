@@ -1,74 +1,105 @@
 const express = require('express');
-const cors = require('cors');
-const fs = require('fs').promises;
-const path = require('path');
-
 const app = express();
-const port = 3000;
+const cors = require('cors');
+const {Pool} = require('pg');
 
 app.use(cors());
 app.use(express.json());
 
-async function readFile(filePath) {
-	try {
-		const fileContent = await fs.readFile(filePath, 'utf8');
-		return fileContent;
-	} catch (error) {
-		console.error('Ошибка при чтении файла:', error);
-		throw error;
-	}
-}
-
-async function createEmptyFile(fileName) {
-	try {
-		const filePath = path.join(__dirname, '..', 'public', 'notes', fileName);
-		await fs.writeFile(filePath, '');
-		console.log(`Файл ${fileName} успешно создан`);
-	} catch (error) {
-		console.error('Ошибка при создании файла:', error);
-		throw error;
-	}
-}
-
-app.post('/api/notes', async (req, res) => {
-	try {
-		const { fileName } = req.body;
-		if (!fileName || !fileName.endsWith('.html')) {
-			return res.status(400).json({ error: 'Неверное имя файла. Файл должен иметь расширение .html' });
-		}
-
-		await createEmptyFile(fileName);
-		res.status(201).json({ message: 'Файл успешно создан' });
-	} catch (error) {
-		console.error('Ошибка при создании файла:', error);
-		res.status(500).json({ error: 'Ошибка при создании файла' });
-	}
+const pool = new Pool({
+    user: 'postgres',
+    host: 'localhost',
+    database: 'postgres',
+    password: '0800',
+    port: 5432,
 });
 
-// API endpoint для получения списка файлов
-app.get('/api/notes', async (req, res) => {
-	try {
-		const notesPath = path.join(__dirname, '..', 'public', 'notes');
-		const files = await fs.readdir(notesPath);
-		res.json(files.filter(i => i.includes('.html')).map(item => item.replace('.html', '')));
-	} catch (error) {
-		console.error('Ошибка при получении списка заметок:', error);
-		res.status(500).json({ error: 'Ошибка при получении списка заметок' });
-	}
+//q|---Удаление блокнота по ID---|
+
+app.delete('/api/notebooks/:id', async (req, res) => {
+    const id = parseInt(req.params.id);
+    try {
+        const results = await pool.query('DELETE FROM notebooks WHERE id = $1', [id]);
+        if (results.rowCount === 0) {
+            return res.status(404).json({message: 'Notebook not found'});
+        }
+        res.status(204).send({message: 'Notebook deleted successfully'});
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({message: 'Error deleting notebook'});
+    }
 });
 
-app.get('/api/notes/:filename', async (req, res) => {
-	try {
-		const filename = req.params.filename;
-		const notesPath = path.join(__dirname, '..', 'public', 'notes', filename);
-		const fileContent = await readFile(notesPath);
-		res.send(fileContent);
-	} catch (error) {
-		console.error('Ошибка при чтении файла:', error);
-		res.status(404).json({ error: 'Файл не найден' });
-	}
+
+//q|---Создание нового блокнота---|
+
+app.post('/api/notebooks', async (req, res) => {
+    const {title, userId} = req.body;
+    try {
+        const results = await pool.query(`INSERT INTO notebooks (title, user_id, created_at) VALUES ($1, $2, NOW()) RETURNING *`, [title, userId]);
+        res.json(results.rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({message: 'Error creating notebook'});
+    }
 });
 
-app.listen(port, () => {
-	console.log(`Server is running on http://localhost:${port}`);
+//q|---Получение списка блокнотов по ID пользователя---|
+
+app.get('/api/notebooks/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    try {
+        const results = await pool.query(`SELECT * FROM notebooks WHERE user_id = $1`, [userId]);
+        res.json(results.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({message: 'Error fetching notebooks'});
+    }
+});
+
+//q|---Получение списка столов по ID пользователя---|
+
+app.get('/api/tables/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    try {
+        // const results = await pool.query(`SELECT * FROM users_tables_pivot WHERE user_id = $1`, [userId]);
+        const results = await pool.query(`WITH user_tables AS (
+              SELECT DISTINCT table_id
+              FROM users_tables_pivot
+              WHERE user_id = ${userId}
+            ),
+            table_info AS (
+              SELECT tables.id, tables.title, tables.created_at
+              FROM tables tables
+              INNER JOIN user_tables ut ON tables.id = ut.table_id
+            )
+            SELECT 
+              ti.id,
+              ti.title,
+              ti.created_at
+            FROM table_info ti
+            ORDER BY ti.id;
+            `);
+        res.json(results.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({message: 'Error fetching tables'});
+    }
+});
+
+//q|---Получение списка заметок по ID блокнота---|
+
+app.get('/api/notes/:notebookId', async (req, res) => {
+    const notebookId = req.params.notebookId;
+    try {
+        const results = await pool.query(`SELECT * FROM notes WHERE notebook_id = $1`, [notebookId]);
+        res.json(results.rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({message: 'Error fetching notes'});
+    }
+});
+
+app.listen(3000, () => {
+    console.log('Server listening on port 3000');
 });
