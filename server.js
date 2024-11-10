@@ -1,138 +1,160 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
-const {Pool} = require('pg');
-const result = require("pg/lib/query");
+const {Sequelize, DataTypes, QueryInterface} = require('sequelize');
 
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-    user: 'postgres',
+const sequelize = new Sequelize('postgres', 'postgres', '0800', {
     host: 'localhost',
-    database: 'postgres',
-    password: '0800',
-    port: 5432,
+    dialect: 'postgres'
 });
 
-//e|---------Столы---------|
-
-//q|---Получение списка столов по ID пользователя---|
-
-app.get('/api/tables/:userId', async (req, res) => {
-    const userId = req.params.userId;
+// Инициализируем соединение
+async function init() {
     try {
-        // const results = await pool.query(`SELECT * FROM users_tables_pivot WHERE user_id = $1`, [userId]);
-        const results = await pool.query(`WITH user_tables AS (
-              SELECT DISTINCT table_id
-              FROM users_tables_pivot
-              WHERE user_id = ${userId}
-            ),
-            table_info AS (
-              SELECT t.id, t.title, t.created_at
-              FROM tables t
-              INNER JOIN user_tables ut ON t.id = ut.table_id
-            )
-            SELECT 
-              ti.id,
-              ti.title,
-              ti.created_at
-            FROM table_info ti
-            ORDER BY ti.id;
-        `);
-        res.json(results.rows);
+        await sequelize.authenticate();
+        console.log('Connection has been established successfully.');
     } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error fetching tables'});
+        console.error('Unable to connect to the database:', err);
     }
-});
+}
 
-//q|---Добавление нового стола---|
+init();
 
-const createTable = async (title, userId, res) => {
-    try {
-        const addResults = await pool.query(`INSERT INTO tables (title, created_at) VALUES ($1, NOW()) RETURNING *`, [title]);
-        const tableId = addResults.rows[0].id;
-        const pivotResults = await pool.query(`INSERT INTO users_tables_pivot (user_id, table_id, relation) VALUES ($1, $2, $3) RETURNING *`, [userId, tableId, 'ADMIN']);
-        res.json(addResults.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error creating table'});
-    }
-};
+// Определяем модели
 
-const createUserTablePivot = async (userId, tableId, res) => {
-    try {
-        const results = await pool.query(`INSERT INTO users_tables_pivot (user_id, table_id, relation) VALUES ($1, $2, $3) RETURNING *`, [userId, tableId, 'ADMIN']);
-        res.json(results.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error creating pivot'});
-    }
-};
-
-app.post('/api/tables', async (req, res) => {
-    const {title, userId} = req.body;
-    const tableId = await createTable(title, userId, res);
-});
-
-//q|---Удаление блокнота по ID---|
-
-app.delete('/api/notebooks/:id', async (req, res) => {
-    const id = parseInt(req.params.id);
-    try {
-        const results = await pool.query('DELETE FROM notebooks WHERE id = $1', [id]);
-        if (results.rowCount === 0) {
-            return res.status(404).json({message: 'Notebook not found'});
+const Users = sequelize.define('Users', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    username: {
+        type: DataTypes.CHAR(24),
+        allowNull: false
+    },
+    email: {
+        type: DataTypes.CHAR(64),
+        allowNull: false,
+        validate: {
+            isEmail: true
         }
-        res.status(204).send({message: 'Notebook deleted successfully'});
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error deleting notebook'});
+    },
+    created_at: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
     }
 });
 
-//q|---Создание нового блокнота---|
-
-app.post('/api/notebooks', async (req, res) => {
-    const {title, userId} = req.body;
-    try {
-        const results = await pool.query(`INSERT INTO notebooks (title, user_id, created_at) VALUES ($1, $2, NOW()) RETURNING *`, [title, userId]);
-        res.json(results.rows[0]);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error creating notebook'});
+const Tables = sequelize.define('Tables', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.CHAR(24),
+        allowNull: false,
+        defaultValue: 'New Table'
+    },
+    created_at: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
     }
 });
 
-//q|---Получение списка блокнотов по ID пользователя---|
-
-app.get('/api/notebooks/:userId', async (req, res) => {
-    const userId = req.params.userId;
-    try {
-        const results = await pool.query(`SELECT * FROM notebooks WHERE user_id = $1`, [userId]);
-        res.json(results.rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error fetching notebooks'});
+const Notebooks = sequelize.define('Notebooks', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.CHAR(24),
+        allowNull: false,
+        defaultValue: 'New Notebook'
+    },
+    created_at: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
     }
 });
 
+const Notes = sequelize.define('Notes', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    title: {
+        type: DataTypes.CHAR(24),
+        allowNull: false,
+        defaultValue: 'New note'
+    },
+    created_at: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
+    },
+    updated_at: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW
+    },
+    content: DataTypes.TEXT
+})
 
-
-//q|---Получение списка заметок по ID блокнота---|
-
-app.get('/api/notes/:notebookId', async (req, res) => {
-    const notebookId = req.params.notebookId;
-    try {
-        const results = await pool.query(`SELECT * FROM notes WHERE notebook_id = $1`, [notebookId]);
-        res.json(results.rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({message: 'Error fetching notes'});
-    }
+const Users_Tables_Pivot = sequelize.define('Users_Tables_Pivot', {
+    id: {
+        type: DataTypes.INTEGER,
+        primaryKey: true,
+        autoIncrement: true
+    },
+    user_id: {
+        type: DataTypes.INTEGER
+    },
+    table_id: {
+        type: DataTypes.INTEGER
+    },
+    relation: DataTypes.CHAR(20),
+    tableName: 'Users_Tables_Pivot'
 });
 
-app.listen(3000, () => {
-    console.log('Server listening on port 3000');
+Users.hasMany(Tables, { onDelete: 'cascade' });
+Tables.belongsTo(Users);
+
+Users.belongsToMany(Tables, { through: Users_Tables_Pivot });
+Tables.belongsToMany(Users, { through: Users_Tables_Pivot });
+
+Users_Tables_Pivot.belongsTo(Users);
+Users_Tables_Pivot.belongsTo(Tables);
+
+// Users_Tables_Pivot.addIndex(['userId']);
+// Users_Tables_Pivot.addIndex(['tableId']);
+
+QueryInterface.addIndex('Users_Tables_Pivot', DataTypes.INTEGER, ['userId']);
+QueryInterface.addIndex('Users_Tables_Pivot', DataTypes.INTEGER, ['tableId']);
+
+QueryInterface.addConstraint('Users_Tables_Pivot', {
+    type: 'foreign key',
+    references: {
+        table: 'Users',
+        field: 'id'
+    },
+    fields: ['userId']
 });
+
+QueryInterface.addConstraint('Users_Tables_Pivot', {
+    type: 'foreign key',
+    references: {
+        table: 'Tables',
+        field: 'id'
+    },
+    fields: ['tableId']
+});
+
