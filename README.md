@@ -1,4 +1,4 @@
-README на русском языке - [RU](https://github.com/ThePolonsky/nota_front/tree/main?tab=readme-ov-file#nota-клиентская-часть)
+README на русском языке - [RU](https://github.com/ThePolonsky/nota_api/tree/main#nota-серверная-часть)
 
 # Nota Backend
 
